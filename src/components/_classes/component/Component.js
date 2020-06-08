@@ -12,8 +12,9 @@ import { fastCloneDeep, boolValue } from '../../../utils/utils';
 import Element from '../../../Element';
 import ComponentModal from '../componentModal/ComponentModal';
 const CKEDITOR = 'https://cdn.form.io/ckeditor/16.0.0/ckeditor.js';
-const QUILL_URL = 'https://cdn.form.io/quill/1.3.7';
-const ACE_URL = 'https://cdn.form.io/ace/1.4.8/ace.js';
+const QUILL_URL = 'https://cdn.quilljs.com/2.0.0-dev.3';
+const QUILL_TABLE_URL = 'https://cdn.form.io/quill/quill-table.js';
+const ACE_URL = 'https://cdn.form.io/ace/1.4.10/ace.js';
 const TINYMCE_URL = 'https://cdn.tiny.cloud/1/no-api-key/tinymce/5/tinymce.min.js';
 
 /**
@@ -347,6 +348,7 @@ export default class Component extends Element {
      * Used to trigger a new change in this component.
      * @type {function} - Call to trigger a change in this component.
      */
+    let changes = [];
     let lastChanged = null;
     let triggerArgs = [];
     const _triggerChange = _.debounce((...args) => {
@@ -363,13 +365,17 @@ export default class Component extends Element {
         args[0] = lastChanged.flags;
       }
       lastChanged = null;
-      return this.onChange(...args);
+      args[3] = changes;
+      const retVal = this.onChange(...args);
+      changes = [];
+      return retVal;
     }, 100);
     this.triggerChange = (...args) => {
       if (args[1]) {
         // Make sure that during the debounce that we always track lastChanged component, even if they
         // don't provide one later.
         lastChanged = args[1];
+        changes.push(lastChanged);
       }
       if (this.root) {
         this.root.changing = true;
@@ -455,7 +461,12 @@ export default class Component extends Element {
     label.labelPosition = this.component.labelPosition;
     label.tooltipClass = `${this.iconClass('question-sign')} text-muted`;
 
-    if (this.hasInput && this.component.validate && boolValue(this.component.validate.required)) {
+    const isPDFReadOnlyMode = this.parent &&
+      this.parent.form &&
+      (this.parent.form.display === 'pdf') &&
+      this.options.readOnly;
+
+    if (this.hasInput && this.component.validate && boolValue(this.component.validate.required) && !isPDFReadOnlyMode) {
       label.className += ' field-required';
     }
     if (label.hidden) {
@@ -578,27 +589,8 @@ export default class Component extends Element {
   }
 
   get calculatedPath() {
-    if (this._path) {
-      return `${this._parentPath}${this._path}`;
-    }
-
-    this._path = this.key;
-
-    if (!this.root) {
-      return `${this._parentPath}${this._path}`;
-    }
-
-    let parent = this.parent;
-
-    while (parent && parent.id !== this.root.id) {
-      if (['datagrid', 'container', 'editgrid'].includes(parent.type) || parent.tree) {
-        this._path = `${parent.key}.${this._path}`;
-      }
-
-      parent = parent.parent;
-    }
-
-    return `${this._parentPath}${this._path}`;
+    console.error('component.calculatedPath was deprecated, use component.path instead.');
+    return this.path;
   }
 
   get labelPosition() {
@@ -951,7 +943,7 @@ export default class Component extends Element {
   getModalPreviewTemplate() {
     return `
       <label class="control-label">${this.component.label}</label><br>
-      <button lang='en' class='btn btn-light btn-md open-modal-button' ref='openModal'>${this.getValueAsString(this.dataValue) || 'Click to set value'}</button>`;
+      <button lang='en' class='btn btn-light btn-md open-modal-button' ref='openModal'>${this.getValueAsString(this.dataValue) || this.t('Click to set value')}</button>`;
   }
 
   build(element) {
@@ -987,7 +979,8 @@ export default class Component extends Element {
 
   attach(element) {
     if (!this.builderMode && this.component.modalEdit) {
-      this.componentModal = new ComponentModal(this, element);
+      const modalShouldBeOpened = this.componentModal ? this.componentModal.isOpened : false;
+      this.componentModal = new ComponentModal(this, element, modalShouldBeOpened);
       this.setOpenModalElement();
     }
 
@@ -1074,9 +1067,9 @@ export default class Component extends Element {
   }
 
   checkRefresh(refreshData, changed) {
-    const changePath = _.get(changed, 'instance.calculatedPath', false);
+    const changePath = _.get(changed, 'instance.path', false);
     // Don't let components change themselves.
-    if (changePath && this.calculatedPath === changePath) {
+    if (changePath && this.path === changePath) {
       return;
     }
     if (refreshData === 'data') {
@@ -1092,17 +1085,16 @@ export default class Component extends Element {
     }
   }
 
-  checkRefreshOn(changed) {
+  checkRefreshOn(changes) {
+    changes = changes || [];
     const refreshOn = this.component.refreshOn || this.component.redrawOn;
     // If they wish to refresh on a value, then add that here.
     if (refreshOn) {
       if (Array.isArray(refreshOn)) {
-        refreshOn.forEach(refreshData => {
-          this.checkRefresh(refreshData, changed);
-        });
+        refreshOn.forEach(refreshData => changes.forEach(changed => this.checkRefresh(refreshData, changed)));
       }
       else {
-        this.checkRefresh(refreshOn, changed);
+        changes.forEach(changed => this.checkRefresh(refreshOn, changed));
       }
     }
   }
@@ -1187,7 +1179,7 @@ export default class Component extends Element {
     if (Array.isArray(value)) {
       const values = [];
       value.forEach((val, index) => {
-        const widget = this.refs.input[index] && this.refs.input[index].widge;
+        const widget = this.refs.input[index] && this.refs.input[index].widget;
         if (widget) {
           values.push(widget.getValueAsString(val, options));
         }
@@ -1909,7 +1901,12 @@ export default class Component extends Element {
   addQuill(element, settings, onChange) {
     settings = _.isEmpty(settings) ? this.wysiwygDefault.quill : settings;
     settings = _.merge(this.wysiwygDefault.quill, _.get(this.options, 'editors.quill.settings', {}), settings);
-
+    settings = {
+      ...settings,
+      modules: {
+        table: true
+      }
+    };
     // Lazy load the quill css.
     Formio.requireLibrary(`quill-css-${settings.theme}`, 'Quill', [
       { type: 'styles', src: `${QUILL_URL}/quill.${settings.theme}.css` }
@@ -1918,42 +1915,45 @@ export default class Component extends Element {
     // Lazy load the quill library.
     return Formio.requireLibrary('quill', 'Quill', _.get(this.options, 'editors.quill.src', `${QUILL_URL}/quill.min.js`), true)
       .then(() => {
-        if (!element.parentNode) {
-          return NativePromise.reject();
-        }
-        this.quill = new Quill(element, settings);
-
-        /** This block of code adds the [source] capabilities.  See https://codepen.io/anon/pen/ZyEjrQ **/
-        const txtArea = document.createElement('textarea');
-        txtArea.setAttribute('class', 'quill-source-code');
-        this.quill.addContainer('ql-custom').appendChild(txtArea);
-        const qlSource = element.parentNode.querySelector('.ql-source');
-        if (qlSource) {
-          this.addEventListener(qlSource, 'click', (event) => {
-            event.preventDefault();
-            if (txtArea.style.display === 'inherit') {
-              this.quill.setContents(this.quill.clipboard.convert(txtArea.value));
+        return Formio.requireLibrary('quill-table', 'Quill', QUILL_TABLE_URL, true)
+          .then(() => {
+            if (!element.parentNode) {
+              return NativePromise.reject();
             }
-            txtArea.style.display = (txtArea.style.display === 'none') ? 'inherit' : 'none';
+            this.quill = new Quill(element, settings);
+
+            /** This block of code adds the [source] capabilities.  See https://codepen.io/anon/pen/ZyEjrQ **/
+            const txtArea = document.createElement('textarea');
+            txtArea.setAttribute('class', 'quill-source-code');
+            this.quill.addContainer('ql-custom').appendChild(txtArea);
+            const qlSource = element.parentNode.querySelector('.ql-source');
+            if (qlSource) {
+              this.addEventListener(qlSource, 'click', (event) => {
+                event.preventDefault();
+                if (txtArea.style.display === 'inherit') {
+                  this.quill.setContents(this.quill.clipboard.convert(txtArea.value));
+                }
+                txtArea.style.display = (txtArea.style.display === 'none') ? 'inherit' : 'none';
+              });
+            }
+            /** END CODEBLOCK **/
+
+            // Make sure to select cursor when they click on the element.
+            this.addEventListener(element, 'click', () => this.quill.focus());
+
+            // Allows users to skip toolbar items when tabbing though form
+            const elm = document.querySelectorAll('.ql-formats > button');
+            for (let i = 0; i < elm.length; i++) {
+              elm[i].setAttribute('tabindex', '-1');
+            }
+
+            this.quill.on('text-change', () => {
+              txtArea.value = this.quill.root.innerHTML;
+              onChange(txtArea);
+            });
+
+            return this.quill;
           });
-        }
-        /** END CODEBLOCK **/
-
-        // Make sure to select cursor when they click on the element.
-        this.addEventListener(element, 'click', () => this.quill.focus());
-
-        // Allows users to skip toolbar items when tabbing though form
-        const elm = document.querySelectorAll('.ql-formats > button');
-        for (let i = 0; i < elm.length; i++) {
-          elm[i].setAttribute('tabindex', '-1');
-        }
-
-        this.quill.on('text-change', () => {
-          txtArea.value = this.quill.root.innerHTML;
-          onChange(txtArea);
-        });
-
-        return this.quill;
       });
   }
 
@@ -2227,6 +2227,15 @@ export default class Component extends Element {
     return this.hasValue() && !this.isEmpty(this.dataValue);
   }
 
+  setDefaultValue() {
+    if (this.defaultValue) {
+      const defaultValue = (this.component.multiple && !this.dataValue.length) ? [] : this.defaultValue;
+      this.setValue(defaultValue, {
+        noUpdateEvent: true
+      });
+    }
+  }
+
   /**
    * Restore the value of a control.
    */
@@ -2237,12 +2246,7 @@ export default class Component extends Element {
       });
     }
     else {
-      if (this.defaultValue) {
-        const defaultValue = (this.component.multiple && !this.dataValue.length) ? [] : this.defaultValue;
-        this.setValue(defaultValue, {
-          noUpdateEvent: true
-        });
-      }
+      this.setDefaultValue();
     }
   }
 
@@ -2363,7 +2367,10 @@ export default class Component extends Element {
   calculateComponentValue(data, flags, row) {
     // If no calculated value or
     // hidden and set to clearOnHide (Don't calculate a value for a hidden field set to clear when hidden)
-    if (!this.component.calculateValue || ((!this.visible || this.component.hidden) && this.component.clearOnHide && !this.rootPristine)) {
+    const { hidden, clearOnHide } = this.component;
+    const shouldBeCleared = (!this.visible || hidden) && clearOnHide && !this.rootPristine;
+
+    if (!this.component.calculateValue || shouldBeCleared) {
       return false;
     }
 
@@ -2379,21 +2386,6 @@ export default class Component extends Element {
       this.calculatedValue = null;
     }
 
-    // Check to ensure that the calculated value is different than the previously calculated value.
-    if (
-      allowOverride &&
-      this.calculatedValue &&
-      !_.isEqual(dataValue, this.convertNumberOrBoolToString(this.calculatedValue))
-    ) {
-      return false;
-    }
-
-    if (flags.fromSubmission &&
-      allowOverride &&
-      this.calculatedValue !== this.dataValue) {
-      return false;
-    }
-
     // Calculate the new value.
     const calculatedValue = this.evaluate(this.component.calculateValue, {
       value: dataValue,
@@ -2401,12 +2393,32 @@ export default class Component extends Element {
       row: row || this.data
     }, 'value') || this.emptyValue;
 
+    const currentCalculatedValue = this.convertNumberOrBoolToString(this.calculatedValue);
+    const newCalculatedValue = this.convertNumberOrBoolToString(calculatedValue);
+
+    // Check to ensure that the calculated value is different than the previously calculated value.
+    if (
+      allowOverride &&
+      this.calculatedValue &&
+      !_.isEqual(dataValue, currentCalculatedValue) &&
+      _.isEqual(newCalculatedValue, currentCalculatedValue)) {
+      return false;
+    }
+
+    if (flags.fromSubmission &&
+      allowOverride &&
+      currentCalculatedValue !== this.dataValue) {
+      this.calculatedValue = calculatedValue;
+      return false;
+    }
+
     // If this is the firstPass, and the dataValue is different than to the calculatedValue.
     if (
       allowOverride &&
       firstPass &&
       !this.isEmpty(dataValue) &&
-      !_.isEqual(dataValue, this.convertNumberOrBoolToString(calculatedValue))
+      !_.isEqual(dataValue, this.convertNumberOrBoolToString(calculatedValue)) &&
+      !_.isEqual(calculatedValue, this.convertNumberOrBoolToString(calculatedValue))
     ) {
       // Return that we have a change so it will perform another pass.
       this.calculatedValue = calculatedValue;
@@ -2496,9 +2508,9 @@ export default class Component extends Element {
     return !this.invalidMessage(data, dirty);
   }
 
-  setComponentValidity(messages, dirty) {
+  setComponentValidity(messages, dirty, silentCheck) {
     const hasErrors = !!messages.filter(message => message.level === 'error').length;
-    if (messages.length && (dirty || !this.pristine)) {
+    if (messages.length && (!silentCheck || this.error) && (dirty || !this.pristine)) {
       this.setCustomValidity(messages, dirty);
     }
     else {
@@ -2515,9 +2527,11 @@ export default class Component extends Element {
    * @param row
    * @return {boolean}
    */
-  checkComponentValidity(data, dirty, row, async = false) {
+  checkComponentValidity(data, dirty, row, options = {}) {
     data = data || this.rootValue;
     row = row || this.data;
+    const { async = false, silentCheck = false } = options;
+
     if (this.shouldSkipValidation(data, dirty, row)) {
       this.setCustomValidity('');
       return async ? NativePromise.resolve(true) : true;
@@ -2525,18 +2539,18 @@ export default class Component extends Element {
 
     const check = Validator.checkComponent(this, data, row, true, async);
     return async ?
-      check.then((messages) => this.setComponentValidity(messages, dirty)) :
-      this.setComponentValidity(check, dirty);
+      check.then((messages) => this.setComponentValidity(messages, dirty, silentCheck)) :
+      this.setComponentValidity(check, dirty, silentCheck);
   }
 
-  checkValidity(data, dirty, row) {
+  checkValidity(data, dirty, row, silentCheck) {
     data = data || this.rootValue;
     row = row || this.data;
-    return this.checkComponentValidity(data, dirty, row);
+    return this.checkComponentValidity(data, dirty, row, { silentCheck });
   }
 
-  checkAsyncValidity(data, dirty, row) {
-    return NativePromise.resolve(this.checkComponentValidity(data, dirty, row, true));
+  checkAsyncValidity(data, dirty, row, silentCheck) {
+    return NativePromise.resolve(this.checkComponentValidity(data, dirty, row, { async: true, silentCheck }));
   }
 
   /**
@@ -2552,7 +2566,7 @@ export default class Component extends Element {
     data = data || this.rootValue;
     flags = flags || {};
     row = row || this.data;
-    this.checkRefreshOn(flags.changed);
+    this.checkRefreshOn(flags.changes);
     if (flags.noCheck) {
       return true;
     }
@@ -2616,6 +2630,8 @@ export default class Component extends Element {
   }
 
   setCustomValidity(messages, dirty, external) {
+    const inputRefs = this.isInputComponent ? this.refs.input || [] : null;
+
     if (typeof messages === 'string' && messages) {
       messages = {
         level: 'error',
@@ -2645,9 +2661,9 @@ export default class Component extends Element {
         external: !!external,
       };
       this.emit('componentError', this.error);
-      this.addMessages(messages, dirty, this.refs.input);
-      if (this.refs.input) {
-        this.setErrorClasses(this.refs.input, dirty, hasErrors, !!messages.length);
+      this.addMessages(messages, dirty, inputRefs);
+      if (inputRefs) {
+        this.setErrorClasses(inputRefs, dirty, hasErrors, !!messages.length);
       }
     }
     else if (this.error && this.error.external === !!external) {
@@ -2655,8 +2671,8 @@ export default class Component extends Element {
         this.empty(this.refs.messageContainer);
       }
       this.error = null;
-      if (this.refs.input) {
-        this.setErrorClasses(this.refs.input, dirty, hasErrors, !!messages.length);
+      if (inputRefs) {
+        this.setErrorClasses(inputRefs, dirty, hasErrors, !!messages.length);
       }
       this.clearErrorClasses();
     }
@@ -2804,6 +2820,13 @@ export default class Component extends Element {
     }
   }
 
+  getRelativePath(path) {
+    const keyPart = `.${this.key}`;
+    const thisPath = this.isInputComponent ? this.path
+                                           : this.path.slice(0).replace(keyPart, '');
+    return path.replace(thisPath, '');
+  }
+
   clear() {
     this.detach();
     this.empty(this.getElement());
@@ -2892,6 +2915,9 @@ export default class Component extends Element {
   }
 
   focus() {
+    if ('beforeFocus' in this.parent) {
+      this.parent.beforeFocus(this);
+    }
     if (this.refs.input && this.refs.input[0]) {
       this.refs.input[0].focus();
     }

@@ -50,9 +50,7 @@
 <li data-ice="doc"><a data-ice="dirPath" class="nav-dir-path" href="identifiers.html#components--classes-multivalue">components/_classes/multivalue</a><span data-ice="kind" class="kind-class">C</span><span data-ice="name"><span><a href="class/src/components/_classes/multivalue/Multivalue.js~Multivalue.html">Multivalue</a></span></span></li>
 <li data-ice="doc"><a data-ice="dirPath" class="nav-dir-path" href="identifiers.html#components--classes-nested">components/_classes/nested</a><span data-ice="kind" class="kind-class">C</span><span data-ice="name"><span><a href="class/src/components/_classes/nested/NestedComponent.js~NestedComponent.html">NestedComponent</a></span></span></li>
 <li data-ice="doc"><span data-ice="kind" class="kind-function">F</span><span data-ice="name"><span><a href="function/index.html#static-function-NestedComponent">NestedComponent</a></span></span></li>
-<li data-ice="doc"><a data-ice="dirPath" class="nav-dir-path" href="identifiers.html#components-address">components/address</a><span data-ice="kind" class="kind-class">C</span><span data-ice="name"><span><a href="class/src/components/address/Address.js~AddressComponent.html">AddressComponent</a></span></span></li>
-<li data-ice="doc"><span data-ice="kind" class="kind-function">F</span><span data-ice="name"><span><a href="function/index.html#static-function-Address">Address</a></span></span></li>
-<li data-ice="doc"><span data-ice="kind" class="kind-variable">V</span><span data-ice="name"><span><a href="variable/index.html#static-variable-AddressComponentMode">AddressComponentMode</a></span></span></li>
+<li data-ice="doc"><a data-ice="dirPath" class="nav-dir-path" href="identifiers.html#components-address">components/address</a><span data-ice="kind" class="kind-function">F</span><span data-ice="name"><span><a href="function/index.html#static-function-Address">Address</a></span></span></li>
 <li data-ice="doc"><a data-ice="dirPath" class="nav-dir-path" href="identifiers.html#components-button">components/button</a><span data-ice="kind" class="kind-class">C</span><span data-ice="name"><span><a href="class/src/components/button/Button.js~ButtonComponent.html">ButtonComponent</a></span></span></li>
 <li data-ice="doc"><span data-ice="kind" class="kind-function">F</span><span data-ice="name"><span><a href="function/index.html#static-function-Button">Button</a></span></span></li>
 <li data-ice="doc"><a data-ice="dirPath" class="nav-dir-path" href="identifiers.html#components-checkbox">components/checkbox</a><span data-ice="kind" class="kind-class">C</span><span data-ice="name"><span><a href="class/src/components/checkbox/Checkbox.js~CheckBoxComponent.html">CheckBoxComponent</a></span></span></li>
@@ -274,6 +272,7 @@ export default class SelectComponent extends Field {
       template: &apos;&lt;span&gt;{{ item.label }}&lt;/span&gt;&apos;,
       selectFields: &apos;&apos;,
       searchThreshold: 0.3,
+      uniqueOptions: false,
       tableView: true,
       fuseOptions: {
         include: &apos;score&apos;,
@@ -388,6 +387,10 @@ export default class SelectComponent extends Field {
     return super.shouldDisabled || this.parentDisabled;
   }
 
+  isEntireObjectDisplay() {
+    return this.component.dataSrc === &apos;resource&apos; &amp;&amp; this.valueProperty === &apos;data&apos;;
+  }
+
   itemTemplate(data) {
     if (_.isEmpty(data)) {
       return &apos;&apos;;
@@ -407,9 +410,11 @@ export default class SelectComponent extends Field {
       return this.t(data);
     }
 
-    data.data = this.valueProperty === &apos;data&apos; &amp;&amp; _.isObject(data.data)
-      ? JSON.stringify(data.data)
-      : data.data;
+    if (data.data) {
+      data.data = this.isEntireObjectDisplay() &amp;&amp; _.isObject(data.data)
+        ? JSON.stringify(data.data)
+        : data.data;
+    }
 
     const template = this.component.template ? this.interpolate(this.component.template, { item: data }) : data.label;
     if (template) {
@@ -432,9 +437,23 @@ export default class SelectComponent extends Field {
     if (_.isNil(label)) return;
 
     const option = {
-      value: _.isObject(value) ? value :  _.isNull(value) ? this.emptyValue : String(this.normalizeSingleValue(value)),
+      value: _.isObject(value) &amp;&amp; this.isEntireObjectDisplay()
+        ? this.normalizeSingleValue(value)
+        : _.isObject(value)
+          ? value
+          : _.isNull(value)
+            ? this.emptyValue
+            : String(this.normalizeSingleValue(value)),
       label: label
     };
+
+    const skipOption = this.component.uniqueOptions
+      ? !!this.selectOptions.find((selectOption) =&gt; _.isEqual(selectOption.value, option.value))
+      : false;
+
+    if (skipOption) {
+      return;
+    }
 
     if (value) {
       this.selectOptions.push(option);
@@ -806,7 +825,7 @@ export default class SelectComponent extends Field {
         let resourceUrl = this.options.formio ? this.options.formio.formsUrl : `${Formio.getProjectUrl()}/form`;
         resourceUrl += (`/${this.component.data.resource}/submission`);
 
-        if (forceUpdate || this.additionalResourcesAvailable) {
+        if (forceUpdate || this.additionalResourcesAvailable || this.dataValue.length &amp;&amp; !this.serverCount) {
           try {
             this.loadItems(resourceUrl, searchInput, this.requestHeaders);
           }
@@ -820,7 +839,7 @@ export default class SelectComponent extends Field {
         break;
       }
       case &apos;url&apos;: {
-        if (!forceUpdate &amp;&amp; !this.active) {
+        if (!forceUpdate &amp;&amp; !this.active &amp;&amp; !this.calculatedValue) {
           // If we are lazyLoading, wait until activated.
           return;
         }
@@ -1141,10 +1160,14 @@ export default class SelectComponent extends Field {
         new Form(formioForm, formUrl, {}).ready
           .then((form) =&gt; {
             form.on(&apos;submit&apos;, (submission) =&gt; {
+              // If valueProperty is set, replace the submission with the corresponding value
+              let value = this.valueProperty ? _.get(submission, this.valueProperty) : submission;
+
               if (this.component.multiple) {
-                submission = [...this.dataValue, submission];
+                value = [...this.dataValue, value];
               }
-              this.setValue(submission);
+              this.setValue(value);
+              this.triggerUpdate();
               dialog.close();
             });
           });
@@ -1340,15 +1363,16 @@ export default class SelectComponent extends Field {
     if (_.isObject(value) &amp;&amp; Object.keys(value).length === 0) {
       return value;
     }
-
+    const displayEntireObject = this.isEntireObjectDisplay();
     const dataType = this.component.dataType || &apos;auto&apos;;
     const normalize = {
       value,
 
       number() {
         const numberValue = Number(this.value);
+        const isEquivalent = value.toString() === numberValue.toString();
 
-        if (!Number.isNaN(numberValue) &amp;&amp; Number.isFinite(numberValue) &amp;&amp; value !==&apos;&apos;) {
+        if (!Number.isNaN(numberValue) &amp;&amp; Number.isFinite(numberValue) &amp;&amp; value !==&apos;&apos; &amp;&amp; isEquivalent) {
           this.value = numberValue;
         }
 
@@ -1373,7 +1397,7 @@ export default class SelectComponent extends Field {
       },
 
       object() {
-        if (_.isObject(this.value)) {
+        if (_.isObject(this.value) &amp;&amp; displayEntireObject) {
           this.value = JSON.stringify(this.value);
         }
 
@@ -1381,7 +1405,13 @@ export default class SelectComponent extends Field {
       },
 
       auto() {
-        this.value = this.object().string().number().boolean().value;
+        if (_.isObject(this.value)) {
+          this.value = this.object().value;
+        }
+        else {
+          this.value = this.string().number().boolean().value;
+        }
+
         return this;
       }
     };
@@ -1531,6 +1561,15 @@ export default class SelectComponent extends Field {
     return typeof value === &apos;number&apos; || typeof value === &apos;boolean&apos;;
   }
 
+  getNormalizedValues() {
+    if (!this.component || !this.component.data || !this.component.data.values) {
+      return;
+    }
+    return this.component.data.values.map(
+      value =&gt; ({ label: value.label, value: String(this.normalizeSingleValue(value.value)) })
+    );
+  }
+
   asString(value) {
     value = value || this.getValue();
     //need to convert values to strings to be able to compare values with available options that are strings
@@ -1552,7 +1591,7 @@ export default class SelectComponent extends Field {
         valueProperty,
       } = this.component.dataSrc === &apos;values&apos;
         ? {
-          items: this.component.data.values,
+          items: this.getNormalizedValues(),
           valueProperty: &apos;value&apos;,
         }
         : {

@@ -50,9 +50,7 @@
 <li data-ice="doc"><a data-ice="dirPath" class="nav-dir-path" href="identifiers.html#components--classes-multivalue">components/_classes/multivalue</a><span data-ice="kind" class="kind-class">C</span><span data-ice="name"><span><a href="class/src/components/_classes/multivalue/Multivalue.js~Multivalue.html">Multivalue</a></span></span></li>
 <li data-ice="doc"><a data-ice="dirPath" class="nav-dir-path" href="identifiers.html#components--classes-nested">components/_classes/nested</a><span data-ice="kind" class="kind-class">C</span><span data-ice="name"><span><a href="class/src/components/_classes/nested/NestedComponent.js~NestedComponent.html">NestedComponent</a></span></span></li>
 <li data-ice="doc"><span data-ice="kind" class="kind-function">F</span><span data-ice="name"><span><a href="function/index.html#static-function-NestedComponent">NestedComponent</a></span></span></li>
-<li data-ice="doc"><a data-ice="dirPath" class="nav-dir-path" href="identifiers.html#components-address">components/address</a><span data-ice="kind" class="kind-class">C</span><span data-ice="name"><span><a href="class/src/components/address/Address.js~AddressComponent.html">AddressComponent</a></span></span></li>
-<li data-ice="doc"><span data-ice="kind" class="kind-function">F</span><span data-ice="name"><span><a href="function/index.html#static-function-Address">Address</a></span></span></li>
-<li data-ice="doc"><span data-ice="kind" class="kind-variable">V</span><span data-ice="name"><span><a href="variable/index.html#static-variable-AddressComponentMode">AddressComponentMode</a></span></span></li>
+<li data-ice="doc"><a data-ice="dirPath" class="nav-dir-path" href="identifiers.html#components-address">components/address</a><span data-ice="kind" class="kind-function">F</span><span data-ice="name"><span><a href="function/index.html#static-function-Address">Address</a></span></span></li>
 <li data-ice="doc"><a data-ice="dirPath" class="nav-dir-path" href="identifiers.html#components-button">components/button</a><span data-ice="kind" class="kind-class">C</span><span data-ice="name"><span><a href="class/src/components/button/Button.js~ButtonComponent.html">ButtonComponent</a></span></span></li>
 <li data-ice="doc"><span data-ice="kind" class="kind-function">F</span><span data-ice="name"><span><a href="function/index.html#static-function-Button">Button</a></span></span></li>
 <li data-ice="doc"><a data-ice="dirPath" class="nav-dir-path" href="identifiers.html#components-checkbox">components/checkbox</a><span data-ice="kind" class="kind-class">C</span><span data-ice="name"><span><a href="class/src/components/checkbox/Checkbox.js~CheckBoxComponent.html">CheckBoxComponent</a></span></span></li>
@@ -244,7 +242,12 @@
 import _ from &apos;lodash&apos;;
 import Webform from &apos;./Webform&apos;;
 import Formio from &apos;./Formio&apos;;
-import { fastCloneDeep, checkCondition, firstNonNil, uniqueKey } from &apos;./utils/utils&apos;;
+import {
+  fastCloneDeep,
+  checkCondition,
+  firstNonNil,
+  uniqueKey
+} from &apos;./utils/utils&apos;;
 
 export default class Wizard extends Webform {
   /**
@@ -270,6 +273,7 @@ export default class Wizard extends Webform {
     this.components = [];
     this.originalComponents = [];
     this.page = 0;
+    this.currentPanel = null;
     this.currentNextPage = 0;
     this._seenPages = [0];
   }
@@ -359,13 +363,48 @@ export default class Wizard extends Webform {
     };
   }
 
+  prepareNavigationSettings(ctx) {
+    const currentPanel = this.currentPanel;
+
+    if (currentPanel &amp;&amp; currentPanel.buttonSettings) {
+      Object.keys(currentPanel.buttonSettings).forEach(() =&gt; {
+        Object.keys(ctx.buttons).forEach(key =&gt; {
+          if (typeof currentPanel.buttonSettings[key] !== &apos;undefined&apos; &amp;&amp; !currentPanel.buttonSettings[key]) {
+            ctx.buttons[key] = null;
+          }
+        });
+      });
+    }
+
+    return this.renderTemplate(&apos;wizardNav&apos;, ctx);
+  }
+
+  prepareHeaderSettings(ctx) {
+    if (this.currentPanel &amp;&amp; this.currentPanel.breadcrumb === &apos;none&apos;) {
+      return null;
+    }
+    return this.renderTemplate(&apos;wizardHeader&apos;, ctx);
+  }
+
   render() {
     const ctx = this.renderContext;
+
+    if (this.component.key) {
+      ctx.panels.map(panel =&gt; {
+        if (panel.key === this.component.key) {
+          this.currentPanel = panel;
+        }
+      });
+    }
+
+    const wizardNav = this.prepareNavigationSettings(ctx);
+    const wizardHeader = this.prepareHeaderSettings(ctx);
+
     return this.renderTemplate(&apos;wizard&apos;, {
       ...ctx,
       className: super.getClassName(),
-      wizardHeader: this.renderTemplate(&apos;wizardHeader&apos;, ctx),
-      wizardNav: this.renderTemplate(&apos;wizardNav&apos;, ctx),
+      wizardHeader,
+      wizardNav,
       components: this.renderComponents([
         ...this.prefixComps,
         ...this.currentPage.components,
@@ -429,7 +468,14 @@ export default class Wizard extends Webform {
   }
 
   isBreadcrumbClickable() {
-    return _.get(this.options, &apos;breadcrumbSettings.clickable&apos;, true);
+    let currentPage = null;
+    this.pages.map(page =&gt; {
+      if (_.isEqual(this.currentPage.component, page.component)) {
+        currentPage = page;
+      }
+    });
+
+    return _.get(currentPage.component, &apos;breadcrumbClickable&apos;, true);
   }
 
   attachNav() {
@@ -723,14 +769,14 @@ export default class Wizard extends Webform {
     }
   }
 
-  setForm(form) {
+  setForm(form, flags) {
     if (!form) {
       return;
     }
     this.wizard = form;
     this.component.components = form.components || [];
     this.setComponentSchema();
-    return super.setForm(form);
+    return super.setForm(form, flags);
   }
 
   setValue(submission, flags = {}) {
@@ -842,6 +888,7 @@ export default class Wizard extends Webform {
 
   focusOnComponent(key) {
     let pageIndex = 0;
+
     const [page] = this.pages.filter((page, index) =&gt; {
       if (page.getComponent(key)) {
         pageIndex = index;

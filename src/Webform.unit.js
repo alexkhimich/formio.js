@@ -6,11 +6,36 @@ import each from 'lodash/each';
 import Harness from '../test/harness';
 import FormTests from '../test/forms';
 import Webform from './Webform';
-import { settingErrors, clearOnHide, manualOverride } from '../test/formtest';
+import {
+  settingErrors,
+  clearOnHide,
+  manualOverride,
+  validationOnBlur,
+  calculateValueWithManualOverride,
+  formWithAdvancedLogic
+} from '../test/formtest';
+import DataGridOnBlurValidation from '../test/forms/dataGridOnBlurValidation';
 // import Formio from './Formio';
 // import { APIMock } from '../test/APIMock';
 
 describe('Webform tests', () => {
+  it('Should disable field applying advanced logic if dot is used inside component key', function(done) {
+    const formElement = document.createElement('div');
+    const formWithLogic = new Webform(formElement);
+
+    formWithLogic.setForm(formWithAdvancedLogic).then(() => {
+      assert.equal(formWithLogic.components[1].disabled, false);
+
+      Harness.clickElement(formWithLogic, formWithLogic.element.querySelector('[name="data[requestedCovers.HOUSECONTENT_JEWELRY]"]'));
+
+      setTimeout(() => {
+        assert.equal(formWithLogic.components[1].disabled, true);
+        done();
+      }, 500);
+    })
+    .catch((err) => done(err));
+  });
+
   let formWithCalculatedValue;
 
   it('Should calculate the field value after validation errors appeared on submit', function(done) {
@@ -353,7 +378,7 @@ describe('Webform tests', () => {
     });
   });
 
-  it('Should keep components valid if they are pristine', function(done) {
+  it('Should keep components valid if they are pristine', (done) => {
     const formElement = document.createElement('div');
     const form = new Webform(formElement, { language: 'en', template: 'bootstrap3' });
     form.setForm(settingErrors).then(() => {
@@ -363,7 +388,7 @@ describe('Webform tests', () => {
         input.value += i;
         input.dispatchEvent(inputEvent);
       }
-      this.timeout(1000);
+
       setTimeout(() => {
         assert.equal(form.errors.length, 0);
         Harness.setInputValue(form, 'data[textField]', '');
@@ -372,7 +397,7 @@ describe('Webform tests', () => {
           done();
         }, 250);
       }, 250);
-    });
+    }).catch(done);
   });
 
   it('Should delete value of hidden component if clearOnHide is turned on', function(done) {
@@ -809,6 +834,57 @@ describe('Webform tests', () => {
     });
   });
 
+  describe('Validate onBlur', () => {
+    it('Should keep component valid onChange', (done) => {
+      formElement.innerHTML = '';
+      const form = new Webform(formElement, { language: 'en', template: 'bootstrap3' });
+      form.setForm(validationOnBlur).then(() => {
+        const field = form.components[0];
+        const field2 = form.components[1];
+        const fieldInput = field.refs.input[0];
+
+        Harness.setInputValue(field, 'data[textField]', '12');
+
+        setTimeout(() => {
+          assert(!field.error, 'Should be valid while changing');
+          const blurEvent = new Event('blur');
+          fieldInput.dispatchEvent(blurEvent);
+
+          setTimeout(() => {
+            assert(field.error, 'Should set error aftre component was blured');
+            Harness.setInputValue(field2, 'data[textField1]', 'ab');
+
+            setTimeout(() => {
+              assert(field.error, 'Should keep error when editing another component');
+              done();
+            }, 250);
+          }, 250);
+        }, 250);
+      }).catch(done);
+    });
+
+    it('Should keep components inside DataGrid valid onChange', (done) => {
+      formElement.innerHTML = '';
+      const form = new Webform(formElement, { language: 'en', template: 'bootstrap3' });
+      form.setForm(DataGridOnBlurValidation).then(() => {
+        const component = form.components[0];
+        Harness.setInputValue(component, 'data[dataGrid][0][textField]', '12');
+        const textField = component.iteratableRows[0].components.textField;
+        setTimeout(() => {
+          assert.equal(textField.error, '', 'Should stay valid on input');
+          const blur = new Event('blur', { bubbles: true, cancelable: true });
+          const input = textField.refs.input[0];
+          input.dispatchEvent(blur);
+          textField.element.dispatchEvent(blur);
+            setTimeout(() => {
+              assert(textField.error, 'Should be validated after blur');
+              done();
+            }, 250);
+        }, 250);
+      }).catch(done);
+    });
+  });
+
   describe('Reset values', () => {
     it('Should reset all values correctly.', () => {
       formElement.innerHTML = '';
@@ -908,6 +984,64 @@ describe('Webform tests', () => {
           });
         });
       });
+    });
+  });
+
+  describe('Calculate Value with allowed manual override', () => {
+    it('Should reset all values correctly.', (done) => {
+      const formElement = document.createElement('div');
+      const form = new Webform(formElement, { language: 'en', template: 'bootstrap3' });
+      form.setForm(calculateValueWithManualOverride).then(() => {
+        const dataGrid = form.getComponent('dataGrid');
+        dataGrid.setValue([{ label: 'yes' }, { label: 'no' }]);
+        setTimeout(() => {
+          expect(form.submission).to.deep.equal({
+            data: {
+              dataGrid: [
+                { label: 'yes', value: 'yes' },
+                { label: 'no', value: 'no' },
+              ],
+              checkbox: false,
+              submit: false
+            },
+            metadata: {}
+          });
+          const row1Value = form.getComponent(['dataGrid', 0, 'value']);
+          const row2Value = form.getComponent(['dataGrid', 1, 'value']);
+          row1Value.setValue('y');
+          row2Value.setValue('n');
+
+          setTimeout(() => {
+            expect(form.submission).to.deep.equal({
+              data: {
+                dataGrid: [
+                  { label: 'yes', value: 'y' },
+                  { label: 'no', value: 'n' },
+                ],
+                checkbox: false,
+                submit: false
+              },
+              metadata: {}
+            });
+            const row1Label = form.getComponent(['dataGrid', 0, 'label']);
+            row1Label.setValue('yes2');
+            setTimeout(() => {
+              expect(form.submission).to.deep.equal({
+                data: {
+                  dataGrid: [
+                    { label: 'yes2', value: 'yes2' },
+                    { label: 'no', value: 'n' },
+                  ],
+                  checkbox: false,
+                  submit: false
+                },
+                metadata: {}
+              });
+              done();
+            }, 250);
+          }, 250);
+        }, 250);
+      }).catch(done);
     });
   });
 

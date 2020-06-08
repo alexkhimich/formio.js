@@ -50,9 +50,7 @@
 <li data-ice="doc"><a data-ice="dirPath" class="nav-dir-path" href="identifiers.html#components--classes-multivalue">components/_classes/multivalue</a><span data-ice="kind" class="kind-class">C</span><span data-ice="name"><span><a href="class/src/components/_classes/multivalue/Multivalue.js~Multivalue.html">Multivalue</a></span></span></li>
 <li data-ice="doc"><a data-ice="dirPath" class="nav-dir-path" href="identifiers.html#components--classes-nested">components/_classes/nested</a><span data-ice="kind" class="kind-class">C</span><span data-ice="name"><span><a href="class/src/components/_classes/nested/NestedComponent.js~NestedComponent.html">NestedComponent</a></span></span></li>
 <li data-ice="doc"><span data-ice="kind" class="kind-function">F</span><span data-ice="name"><span><a href="function/index.html#static-function-NestedComponent">NestedComponent</a></span></span></li>
-<li data-ice="doc"><a data-ice="dirPath" class="nav-dir-path" href="identifiers.html#components-address">components/address</a><span data-ice="kind" class="kind-class">C</span><span data-ice="name"><span><a href="class/src/components/address/Address.js~AddressComponent.html">AddressComponent</a></span></span></li>
-<li data-ice="doc"><span data-ice="kind" class="kind-function">F</span><span data-ice="name"><span><a href="function/index.html#static-function-Address">Address</a></span></span></li>
-<li data-ice="doc"><span data-ice="kind" class="kind-variable">V</span><span data-ice="name"><span><a href="variable/index.html#static-variable-AddressComponentMode">AddressComponentMode</a></span></span></li>
+<li data-ice="doc"><a data-ice="dirPath" class="nav-dir-path" href="identifiers.html#components-address">components/address</a><span data-ice="kind" class="kind-function">F</span><span data-ice="name"><span><a href="function/index.html#static-function-Address">Address</a></span></span></li>
 <li data-ice="doc"><a data-ice="dirPath" class="nav-dir-path" href="identifiers.html#components-button">components/button</a><span data-ice="kind" class="kind-class">C</span><span data-ice="name"><span><a href="class/src/components/button/Button.js~ButtonComponent.html">ButtonComponent</a></span></span></li>
 <li data-ice="doc"><span data-ice="kind" class="kind-function">F</span><span data-ice="name"><span><a href="function/index.html#static-function-Button">Button</a></span></span></li>
 <li data-ice="doc"><a data-ice="dirPath" class="nav-dir-path" href="identifiers.html#components-checkbox">components/checkbox</a><span data-ice="kind" class="kind-class">C</span><span data-ice="name"><span><a href="class/src/components/checkbox/Checkbox.js~CheckBoxComponent.html">CheckBoxComponent</a></span></span></li>
@@ -251,7 +249,6 @@ import NestedDataComponent from &apos;./components/_classes/nesteddata/NestedDat
 import {
   fastCloneDeep,
   currentTimezone,
-  getArrayFromComponentPath,
   getStringFromComponentPath
 } from &apos;./utils/utils&apos;;
 import { eachComponent } from &apos;./utils/formUtils&apos;;
@@ -870,7 +867,7 @@ export default class Webform extends NestedDataComponent {
    * @param {Object} form - The JSON schema of the form @see https://examples.form.io/example for an example JSON schema.
    * @returns {*}
    */
-  setForm(form) {
+  setForm(form, flags) {
     // Create the form.
     this._form = form;
 
@@ -909,10 +906,18 @@ export default class Webform extends NestedDataComponent {
       this.emit(&apos;formLoad&apos;, form);
       this.triggerRecaptcha();
       // Make sure to trigger onChange after a render event occurs to speed up form rendering.
-      setTimeout(() =&gt; {
-        this.onChange();
+      const resolveForm = (flags) =&gt; {
+        this.onChange(flags);
         this.formReadyResolve();
-      }, 0);
+      };
+
+      if (flags &amp;&amp; flags.validateOnInit) {
+        resolveForm(flags);
+      }
+      else {
+        setTimeout(() =&gt; resolveForm(flags), 0);
+      }
+
       return this.formReady;
     });
   }
@@ -981,7 +986,13 @@ export default class Webform extends NestedDataComponent {
       fromSubmission: true,
     };
     return this.onSubmission = this.formReady.then(
-      () =&gt; {
+      (resolveFlags) =&gt; {
+        if (resolveFlags) {
+          flags = {
+            ...flags,
+            ...resolveFlags
+          };
+        }
         this.submissionSet = true;
         this.triggerChange(flags);
         this.setValue(submission, flags);
@@ -1008,22 +1019,16 @@ export default class Webform extends NestedDataComponent {
       console.warn(this.t(&apos;saveDraftAuthError&apos;));
       return;
     }
-    const draft = this.submission;
+    const draft = fastCloneDeep(this.submission);
     draft.state = &apos;draft&apos;;
+
     if (!this.savingDraft) {
       this.savingDraft = true;
       this.formio.saveSubmission(draft).then((sub) =&gt; {
-        const currentSubmission = _.merge(sub, draft);
-
+        // Set id to submission to avoid creating new draft submission
+        this.submission._id = sub._id;
+        this.savingDraft = false;
         this.emit(&apos;saveDraft&apos;, sub);
-        if (!draft._id) {
-          this.setSubmission(currentSubmission).then(() =&gt; {
-            this.savingDraft = false;
-          });
-        }
-        else {
-          this.savingDraft = false;
-        }
       });
     }
   }
@@ -1096,7 +1101,9 @@ export default class Webform extends NestedDataComponent {
     if (!flags.sanitize) {
       this.mergeData(this.data, submission.data);
     }
-    submission.data = this.data;
+    submission.data = submission.data
+      ? { ...this.data, ...submission.data }
+      : this.data;
     this._submission = submission;
     return changed;
   }
@@ -1167,13 +1174,18 @@ export default class Webform extends NestedDataComponent {
     });
   }
 
-  destroy() {
+  destroy(deleteFromGlobal = false) {
     this.off(&apos;submitButton&apos;);
     this.off(&apos;checkValidity&apos;);
     this.off(&apos;requestUrl&apos;);
     this.off(&apos;resetForm&apos;);
     this.off(&apos;deleteSubmission&apos;);
     this.off(&apos;refreshData&apos;);
+
+    if (deleteFromGlobal) {
+      delete Formio.forms[this.id];
+    }
+
     return super.destroy();
   }
 
@@ -1327,8 +1339,7 @@ export default class Webform extends NestedDataComponent {
    */
   focusOnComponent(key) {
     if (key) {
-      const path = getArrayFromComponentPath(key);
-      const component = this.getComponent(path);
+      const component = this.getComponent(key);
       if (component) {
         component.focus();
       }
@@ -1488,7 +1499,7 @@ export default class Webform extends NestedDataComponent {
    * @param changed
    * @param flags
    */
-  onChange(flags, changed, modified) {
+  onChange(flags, changed, modified, changes) {
     flags = flags || {};
     let isChangeEventEmitted = false;
     // For any change events, clear any custom errors for that component.
@@ -1499,6 +1510,7 @@ export default class Webform extends NestedDataComponent {
     super.onChange(flags, true);
     const value = _.clone(this.submission);
     flags.changed = value.changed = changed;
+    flags.changes = changes;
 
     if (modified &amp;&amp; this.pristine) {
       this.pristine = false;
@@ -1562,6 +1574,21 @@ export default class Webform extends NestedDataComponent {
     }
   }
 
+  setMetadata(submission) {
+    // Add in metadata about client submitting the form
+    submission.metadata = submission.metadata || {};
+    _.defaults(submission.metadata, {
+      timezone: _.get(this, &apos;_submission.metadata.timezone&apos;, currentTimezone()),
+      offset: parseInt(_.get(this, &apos;_submission.metadata.offset&apos;, moment().utcOffset()), 10),
+      origin: document.location.origin,
+      referrer: document.referrer,
+      browserName: navigator.appName,
+      userAgent: navigator.userAgent,
+      pathName: window.location.pathname,
+      onLine: navigator.onLine
+    });
+  }
+
   submitForm(options = {}) {
     return new NativePromise((resolve, reject) =&gt; {
       // Read-only forms should never submit.
@@ -1574,17 +1601,7 @@ export default class Webform extends NestedDataComponent {
 
       const submission = fastCloneDeep(this.submission || {});
 
-      // Add in metadata about client submitting the form
-      submission.metadata = submission.metadata || {};
-      _.defaults(submission.metadata, {
-        timezone: _.get(this, &apos;_submission.metadata.timezone&apos;, currentTimezone()),
-        offset: parseInt(_.get(this, &apos;_submission.metadata.offset&apos;, moment().utcOffset()), 10),
-        referrer: document.referrer,
-        browserName: navigator.appName,
-        userAgent: navigator.userAgent,
-        pathName: window.location.pathname,
-        onLine: navigator.onLine
-      });
+      this.setMetadata(submission);
 
       submission.state = options.state || &apos;submitted&apos;;
 

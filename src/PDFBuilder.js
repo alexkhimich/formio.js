@@ -5,6 +5,7 @@ import Formio from './Formio';
 
 import WebformBuilder from './WebformBuilder';
 import { fastCloneDeep, getElementRect } from './utils/utils';
+import { eachComponent } from './utils/formUtils';
 import BuilderUtils from './utils/builder';
 import PDF from './PDF';
 const { fetch, Headers } = fetchPonyfill({
@@ -53,7 +54,8 @@ export default class PDFBuilder extends WebformBuilder {
           select: true,
           textarea: true,
           datetime: true,
-          file: true
+          file: true,
+          htmlelement: true,
         }
       },
       basic: false,
@@ -259,9 +261,9 @@ export default class PDFBuilder extends WebformBuilder {
     return this.webform;
   }
 
-  destroy() {
-    super.destroy();
-    this.webform.destroy();
+  destroy(deleteFromGlobal) {
+    super.destroy(deleteFromGlobal);
+    this.webform.destroy(deleteFromGlobal);
   }
 
   // d8b 8888888888                                                                              888
@@ -368,6 +370,9 @@ export default class PDFBuilder extends WebformBuilder {
         this.removeEventListener(el, 'dragend');
         this.addEventListener(el, 'dragstart', this.onDragStart.bind(this), true);
         this.addEventListener(el, 'dragend',   this.onDragEnd  .bind(this), true);
+        this.addEventListener(el, 'drag', (e) => {
+          e.target.style.cursor = 'none';
+        });
       });
     });
   }
@@ -383,6 +388,11 @@ export default class PDFBuilder extends WebformBuilder {
   }
 
   onDragStart(e) {
+    // Taking the current offset of a dragged item relative to the cursor
+    const { offsetX = 0, offsetY = 0 } = e;
+    this.itemOffsetX = offsetX;
+    this.itemOffsetY = offsetY;
+
     e.dataTransfer.setData('text/html', null);
     this.updateDropzoneDimensions();
     this.addClass(this.refs.iframeDropzone, 'enabled');
@@ -397,9 +407,10 @@ export default class PDFBuilder extends WebformBuilder {
   onDragEnd(e) {
     // IMPORTANT - must retrieve offsets BEFORE disabling the dropzone - offsets will
     // reflect absolute positioning if accessed after the target element is hidden
-    const offsetX = this.dropEvent ? this.dropEvent.offsetX : null;
-    const offsetY = this.dropEvent ? this.dropEvent.offsetY : null;
-
+    const layerX = this.dropEvent ? this.dropEvent.layerX : null;
+    const layerY = this.dropEvent ? this.dropEvent.layerY : null;
+    const WIDTH = 100;
+    const HEIGHT = 20;
     // Always disable the dropzone on drag end
     this.removeClass(this.refs.iframeDropzone, 'enabled');
 
@@ -424,10 +435,10 @@ export default class PDFBuilder extends WebformBuilder {
     this.webform.component.components.push(schema);
 
     schema.overlay = {
-      top: offsetY,
-      left: offsetX,
-      width: 100,
-      height: 20
+      top: layerY - this.itemOffsetY + HEIGHT,
+      left: layerX - this.itemOffsetX,
+      width: WIDTH,
+      height: HEIGHT
     };
 
     this.webform.addComponent(schema, {}, null, true);
@@ -437,5 +448,37 @@ export default class PDFBuilder extends WebformBuilder {
 
     // Delete the stored drop event now that it's been handled
     this.dropEvent = null;
+    e.target.style.cursor = 'default';
+  }
+
+  highlightInvalidComponents() {
+    const repeatablePaths = this.findRepeatablePaths();
+
+    // update elements which path was duplicated if any pathes have been changed
+    if (!_.isEqual(this.repeatablePaths, repeatablePaths)) {
+      eachComponent(this.webform.getComponents(), (comp, path) => {
+        if (this.repeatablePaths.includes(path)) {
+          this.webform.postMessage({ name: 'updateElement', data: comp.component });
+        }
+      });
+
+      this.repeatablePaths = repeatablePaths;
+    }
+
+    if (!repeatablePaths.length) {
+      return;
+    }
+
+    eachComponent(this.webform.getComponents(), (comp, path) => {
+      if (this.repeatablePaths.includes(path)) {
+        this.webform.postMessage({
+          name: 'showBuilderErrors',
+          data: {
+            compId: comp.component.id,
+            errorMessage: `API Key is not unique: ${comp.key}`,
+          }
+        });
+      }
+    });
   }
 }

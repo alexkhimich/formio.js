@@ -4,6 +4,164 @@ All notable changes to this project will be documented in this file
 The format is based on [Keep a Changelog](http://keepachangelog.com/)
 and this project adheres to [Semantic Versioning](http://semver.org/).
 
+## 4.10.0-rc.11
+### Changed
+ - Using Quill 2.0.0-dev so that we can have tables capability.
+
+### Fixed
+ - FOR-2683: Fix (Select): made values such as "01", "02", etc. not be converted to 1, 2
+ - FJS-986: Fix (WizardBuilder): prevented emitting change in the schema getter
+
+## 4.10.0-rc.10
+### Fixed
+ - Datagrid with default of zero rows breaks builder and add way of not adding a first row.
+
+## 4.10.0-rc.9
+### Fixed
+ - PDF 008: Fixed to correctly set the default value of CheckboxAsRadio
+ - FJS- 978: Ensure that the RefreshOn will always fire correctly when many changes are occuring.
+ - FJS-967: fixed word counter calculates words with digits as 2 words
+ - FJS-359: Fix onblur validation
+ - FJS 965: fixed builder error when empty array is set as dataGrid default value
+ - FJS-785: Fix (NestedForm is not shown when modalEdit)
+ - Update File.js for S3 image uploads. #2885
+ - FJS 948: Fixed component key with dot breaks advanced logic
+
+## 4.10.0-rc.8
+### Changed
+ - Updated @formio/bootstrap3@2.6.1
+ - Updated @formio/semantic@2.4.1
+
+## 4.10.0-rc.7
+### Added
+ - Modal edit grid alerts: #2860
+ - Row drafts for Edit Grid. #2862
+ - Send auth token with logout request. #2864
+ - PDF-70: pdf builder improvements
+
+### Fixed
+ - FJS- 979: fixed address google maps not showing search results in IE11
+ - FJS-968: `eachComponent` including `htmlelement` and `content` components when `includeAll` is not provided
+ - PDF-59: Fixed redirection after hitting the pdf submit button
+ - PDF-41: Removed red asterisk from readOnly mode and submission as PDF
+ - FJS-704: Address Refactor Issues
+ - Fix missing promise return in deleted method of Formio.js: #2855
+ - FJS-968: Fixed `eachComponent` including `htmlelement` components when `includeAll` is not provided
+ - Fix for Select component Add Resource: #2859
+ - FJS-976: fixed nested form show default value after submission
+ - S3 file uploads for Ionic. #2874
+ - Fix (Modal Edit): added isOpen to open modal window again after it was redrawn. #2866
+ - PDF-43: Fixed an issue of disability to drag components over on Firefox
+ - FJS-476: fixed multiple dateTime not override initial value when editing but add it to the end of the field
+
+## 4.10.0-rc.6
+### Changed
+ - Upgrade @formio/bootstrap3 to 2.6.0
+
+## 4.10.0-rc.5
+### Added
+ - FIN 025 - Added html element into pdf builder.
+
+### Changed
+ -  `bower.json` main file in order to fix issues with formio.js used as external dependency (using `Formio` global object)
+ - PDF 40 - Fixed element's location on its adding.
+ - Fix error classes setting.
+ - FJS-958 fixed DateTime not saving input in IE11
+ 
+### Updated
+ - @babel/cli@7.10.1, @babel/core@7.10.1, @babel/plugin-proposal-class-properties@7.10.1, @babel/plugin-proposal-export-default-from@7.10.1, @babel/plugin-proposal-optional-chaining@7.10.1, @babel/polyfill@7.10.1, @babel/preset-env@7.10.1, @babel/register@7.10.1
+
+## 4.10.0-rc.4
+### Fixed
+ - Angular ZoneAware Promise issue and IE11 issue when using native promises.
+ - Type definition to use static for "use" method.
+
+## 4.10.0-rc.3
+### Fixed
+ - Fixing issues where form default values were not getting set properly. #2834
+ - Fix/uip validation error display #2831
+ - Fix localization for few labels #2829
+ - PDF 72: Fixed an issue of PDF instances duplication and messy Formio.forms
+ - FJS-951: Fixed unable to submit form with dataMap inside dataGrid/editGrid
+ - FJS-959: `EventEmitter`'s infinite loop logic
+   - Changed events amount (`loadLimit`) from 30 to 1000
+   - Changed warning message
+   - Removed logic for ignoring events when suspecting infinite loop
+   
+### Changed
+ - Split metadata setter into separate method #2832
+ - Update i18next@19.4.5, chance@1.1.6, eslint@7.1.0, fetch-mock@9.10.1, mocha@7.2.0
+
+## 4.10.0-rc.2
+### Fixed
+ - FJS-940: Fixed not match mask validation error if minute value is 00 in time component
+ - Fix (Time): made inputMask be relative to format
+ - Fix (Form/Wizard): made child forms be submitted only when Next clicked
+ - Fix (Time): required error is revealed even if value is set
+ - Fix saveComponent event not passing original component.
+ - FJS-952: Fixed data display in editGrid with chain of nested components	
+ 
+### Changed
+ - Updated eventemitter2@6.4.1
+
+## 4.10.0-rc.1
+### Fixed
+ - FJS-723: Added Entire Object option for select with resource
+ - FJS-836: Fix (Select): number values starting with zero failed being displayed in data tab
+ - FJS-907: If there is calculated value, it will override select component's value that is inactive
+ - Fix issue with flatten tabs printing
+
+### Added
+ - Add message props on submit
+ - Add unique values property to select component
+
+## 4.10.0-beta.20
+### Reverted
+ - Fix (customDefaultValue): make subForms value be set only after they were attached
+ 
+### Fixed
+ - Fix components path. (Standardize the way to find a components path)
+
+## 4.10.0-beta.19
+### Fixed
+ - FJS-903: Fixed number formatting
+ - Fixed select value if valueProperty is not set
+ - FJS-884: fixed select resource values displayed only after second click in edit tab
+ - Fix draft submissions by replacing setSubmission with id change
+ - Add translation for html element content
+ - Fix (customDefaultValue): make subForms value be set only after they were attached
+ - Fix (FormioRequest): handle 416 http code
+ - Fix visual height of display options so that they will completely show. #2804
+ - Fix day component where it was not showing label in builder settings. #2805
+
+### Changed
+ - Upgrade bootswatch@4.5.0, fetch-mock@9.9.0
+
+## 4.10.0-beta.18
+### Fixed
+ - Reverted fix for FJS-723 which caused problems with resource selections.
+
+## 4.10.0-beta.17
+### Fixed
+ - FJS-887 & FJS-869: Fix (calculated value): manually overridden value is recalculated after component is created again
+ - FJS-727: Fixed breadcrumb click logic
+ - FJS-924: fixed signature not displaying tooltip
+ - Fixing panel header colors to be white on non-default panels.
+
+## 4.10.0-beta.16
+### Added
+ - PDF 48: Added 'Fixed size' checkbox for textarea edit form
+
+### Changed
+ - Upgrade idb@5.0.3, bootstrap@4.5.0, fetch-mock@9.7.0
+ - Upgrade ace editor to 1.4.10
+ 
+### Fixed
+ - Fix validate on blur
+ - Remove pageQuery global cache
+ - PDF 65: Replaced sent component data in saveComponent by updated one to fix issue of not updating pdf element.
+ - PDF 38: Added logic to PDFBuilder to show api keys duplication error
+
 ## 4.10.0-beta.15
 ### Fixed
  - Fixed EditGrid's checkData workflow

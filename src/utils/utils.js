@@ -1110,8 +1110,15 @@ export function isInputComponent(componentJson) {
 }
 
 export function getArrayFromComponentPath(pathStr) {
+  if (!pathStr || !_.isString(pathStr)) {
+    if (!_.isArray(pathStr)) {
+      return [pathStr];
+    }
+    return pathStr;
+  }
   return pathStr.replace(/[[\]]/g, '.')
     .replace(/\.\./g, '.')
+    .replace(/\.(?!.)|(?<!.)\./g, '')
     .split('.')
     .map(part => _.defaultTo(_.toNumber(part), part));
 }
